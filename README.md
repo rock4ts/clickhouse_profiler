@@ -15,6 +15,7 @@ flowchart TB
     InitialTable[(initial_events)]
     BenchmarkTable[(events)]
     Profiler[profiler]
+    Scenario[scenario]
     Results[("RESULTS_DIR/")]
 
     DatasetLoader -->|seed| InitialTable
@@ -22,8 +23,8 @@ flowchart TB
     ClickHouse --- InitialTable
     ClickHouse --- BenchmarkTable
 
-    Profiler -->|run| <scenario>
-    <scenario> --> BenchmarkTable
+    Profiler -->|run| Scenario
+    Scenario --> BenchmarkTable
     Profiler --> Results
 
 ```
