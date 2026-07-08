@@ -3,21 +3,21 @@
 annotated-types==0.7.0
     # via pydantic
 clickhouse-driver==0.2.10
-    # via ugc-etl-profiler
+    # via clickhouse-profiler
 pydantic==2.13.4
     # via
     #   pydantic-settings
-    #   ugc-etl-profiler
+    #   clickhouse-profiler
 pydantic-core==2.46.4
     # via pydantic
 pydantic-settings==2.14.2
-    # via ugc-etl-profiler
+    # via clickhouse-profiler
 python-dotenv==1.2.2
     # via pydantic-settings
 pytz==2026.2
     # via clickhouse-driver
 structlog==26.1.0
-    # via ugc-etl-profiler
+    # via clickhouse-profiler
 typing-extensions==4.16.0
     # via
     #   pydantic

@@ -1,6 +1,6 @@
-# UGC ETL Profiler
+# ClickHouse Profiler
 
-ClickHouse benchmarking toolkit for evaluating workloads typical of user-generated content (UGC) ETL pipelines. The project provides a shared test environment — ClickHouse with a synthetic event dataset — and a **profiler** that runs isolated benchmark scenarios, each targeting a different aspect of database performance.
+ClickHouse benchmarking toolkit for evaluating write-read workloads. The project provides a shared test environment — ClickHouse with a synthetic event dataset — and a **profiler** that runs isolated benchmark scenarios, each targeting a different aspect of database performance.
 
 Part of the [Yandex Practicum diploma project](https://github.com/rock4ts/yap2_diploma) — used to profile ClickHouse before integrating a UGC module into the platform.
 
@@ -68,7 +68,7 @@ Shared settings (ClickHouse connection, results directory, container resource me
 |----------|--------|------------------|
 | `write_read` | implemented | Concurrent insert throughput under parallel aggregation query load |
 
-More scenarios can be added for other UGC ETL patterns (bulk load, point lookups, materialized views, etc.) — see [Adding scenarios](#adding-scenarios).
+More scenarios can be added for other patterns (bulk load, point lookups, materialized views, etc.) — see [Adding scenarios](#adding-scenarios).
 
 ---
 
@@ -234,7 +234,7 @@ python -m app.main run write_read
 ## Project structure
 
 ```
-ugc_etl_profiler/
+clickhouse_profiler/
 ├── docker-compose.yml          # Full stack; demo runs write_read
 ├── dataset_loader/             # Synthetic data generation and initial load
 │   ├── app/
