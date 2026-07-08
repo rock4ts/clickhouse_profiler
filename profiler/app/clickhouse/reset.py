@@ -8,6 +8,30 @@ from app.clickhouse.client import create_client, get_table_row_count
 from app.config import ClickHouseConfig
 
 
+def clear_clickhouse_caches(config: ClickHouseConfig) -> None:
+    logger = structlog.get_logger("profiler.clickhouse.reset")
+    logger.info("clear_clickhouse_caches_started")
+    commands = (
+        "SYSTEM DROP MARK CACHE",
+        "SYSTEM DROP UNCOMPRESSED CACHE",
+        "SYSTEM DROP QUERY CACHE",
+    )
+    client = create_client(config)
+    try:
+        for command in commands:
+            try:
+                client.execute(command)
+                logger.info(
+                    "cache_clear_command_succeeded",
+                    command=command,
+                )
+            except Exception:
+                logger.warning("cache_clear_command_failed", command=command)
+    finally:
+        client.disconnect()
+    logger.info("clear_clickhouse_caches_finished")
+
+
 def reset_benchmark_table(config: ClickHouseConfig) -> int:
     logger = structlog.get_logger("profiler.clickhouse.reset")
     started_at = time.perf_counter()

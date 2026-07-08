@@ -15,7 +15,7 @@ from app.clickhouse.client import (
     ping,
     select,
 )
-from app.clickhouse.reset import reset_benchmark_table
+from app.clickhouse.reset import clear_clickhouse_caches, reset_benchmark_table
 from app.clickhouse.operations import READ_QUERIES, build_insert_rows
 from app.config import ClickHouseConfig, ProfilerConfig, WriteReadConfig
 from app.metrics import compute_rate, summarize_latency
@@ -68,6 +68,7 @@ def run(
         scenario_config.writer_thread_list, scenario_config.insert_batch_size_list
     ):
         reset_benchmark_table(clickhouse_config)
+        clear_clickhouse_caches(clickhouse_config)
         run_result = _run_instance(
             scenario_config=scenario_config,
             clickhouse_config=clickhouse_config,

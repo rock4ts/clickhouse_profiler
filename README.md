@@ -50,7 +50,7 @@ Both tables use the same schema:
 | `timestamp` | DateTime | Event timestamp |
 
 - **`initial_events`** — immutable seed dataset loaded once by the dataset loader.
-- **`events`** — mutable benchmark table; scenarios reset or modify it as needed. The `write_read` scenario copies from `initial_events` before each experiment.
+- **`events`** — mutable benchmark table; scenarios reset or modify it as needed. The `write_read` scenario copies from `initial_events` and clears ClickHouse caches before each experiment.
 
 ## Profiler
 
@@ -79,9 +79,12 @@ Simulates a mixed OLAP-style workload: writers continuously insert event batches
 For each combination of writer thread count and insert batch size, the scenario:
 
 1. Resets `events` by copying from `initial_events`.
-2. Starts N writer threads that insert batches until the configured duration elapses.
-3. Starts M reader threads that run aggregation queries (GROUP BY category, region, user_id) in parallel.
-4. Records rows written, ingestion throughput, query count, and query latency (avg, p95, max).
+2. Clears ClickHouse caches (`SYSTEM DROP MARK CACHE`, `SYSTEM DROP UNCOMPRESSED CACHE`, `SYSTEM DROP QUERY CACHE`) so each experiment starts from a cold cache state.
+3. Starts N writer threads that insert batches until the configured duration elapses.
+4. Starts M reader threads that run aggregation queries (GROUP BY category, region, user_id) in parallel.
+5. Records rows written, ingestion throughput, query count, and query latency (avg, p95, max).
+
+Cache clearing runs in `profiler/app/clickhouse/reset.py` immediately after the table reset and before the timed workload starts. If a cache command is unsupported or fails, the run continues and logs a warning.
 
 Default parameter grid: writer threads `{3, 4, 5}` × batch sizes `{3000, 5000, 8000}`.
 
@@ -240,7 +243,7 @@ ugc_etl_profiler/
 │   │   ├── main.py             # CLI: run <scenario>
 │   │   ├── config.py           # Shared + per-scenario settings
 │   │   ├── metrics.py          # Latency and throughput helpers
-│   │   ├── clickhouse/         # Client, reset, query operations
+│   │   ├── clickhouse/         # Client, table reset, cache clear, query operations
 │   │   └── scenarios/
 │   │       └── write_read/     # Mixed write/read benchmark
 │   └── Dockerfile
