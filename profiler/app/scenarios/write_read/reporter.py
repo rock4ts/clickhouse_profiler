@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import json
 from collections.abc import Mapping
-from datetime import datetime, UTC
+from datetime import datetime
 from pathlib import Path
 
 FIELDNAMES = [
@@ -23,7 +23,7 @@ FIELDNAMES = [
 
 
 def create_run_report(results_root: str, metadata: Mapping[str, object]) -> Path:
-    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%dT%H%M%S")
     run_dir = Path(results_root) / "write_read" / timestamp
     run_dir.mkdir(parents=True, exist_ok=True)
 
