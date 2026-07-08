@@ -10,6 +10,8 @@ class ProfilerConfig(BaseSettings):
     results_dir: str = "results"
     clickhouse_container_cpus: PositiveFloat = 6.0
     clickhouse_container_ram_limit: str = "8g"
+    profiler_warmup_enabled: bool = True
+    profiler_warmup_duration_seconds: PositiveInt = 15
 
 
 class ClickHouseConfig(BaseSettings):

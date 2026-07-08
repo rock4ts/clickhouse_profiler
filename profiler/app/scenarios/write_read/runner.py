@@ -50,12 +50,18 @@ def run(
     profiler_config: ProfilerConfig,
 ) -> str:
     logger = structlog.get_logger("profiler.scenarios.write_read")
+    warmup_enabled = bool(profiler_config.profiler_warmup_enabled)
+    warmup_duration_seconds = int(profiler_config.profiler_warmup_duration_seconds)
     metadata = {
         "clickhouse_container": {
             "cpus": float(profiler_config.clickhouse_container_cpus),
             "ram_limit": profiler_config.clickhouse_container_ram_limit,
         },
         "scenario_config": scenario_config.model_dump(by_alias=True),
+        "warmup": {
+            "enabled": warmup_enabled,
+            "duration_seconds": warmup_duration_seconds,
+        },
     }
     results_file = create_run_report(profiler_config.results_dir, metadata=metadata)
     readers = int(scenario_config.reader_threads)
@@ -67,13 +73,51 @@ def run(
     for writers, batch in product(
         scenario_config.writer_thread_list, scenario_config.insert_batch_size_list
     ):
+        if warmup_enabled:
+            reset_benchmark_table(clickhouse_config)
+            clear_clickhouse_caches(clickhouse_config)
+            logger.info(
+                "warmup_started",
+                scenario="write_read",
+                writers=int(writers),
+                batch=int(batch),
+                readers=readers,
+                duration_seconds=warmup_duration_seconds,
+                message=f"Starting warm-up (duration: {warmup_duration_seconds} seconds)...",
+            )
+            _run_instance(
+                scenario_config=scenario_config,
+                clickhouse_config=clickhouse_config,
+                writer_threads=int(writers),
+                insert_batch_size=int(batch),
+                duration_seconds=float(warmup_duration_seconds),
+            )
+            logger.info(
+                "warmup_completed",
+                scenario="write_read",
+                writers=int(writers),
+                batch=int(batch),
+                readers=readers,
+                message="Warm-up completed.",
+            )
+
         reset_benchmark_table(clickhouse_config)
         clear_clickhouse_caches(clickhouse_config)
+        logger.info(
+            "measured_run_started",
+            scenario="write_read",
+            writers=int(writers),
+            batch=int(batch),
+            readers=readers,
+            duration_seconds=float(scenario_config.duration_seconds),
+            message="Starting measured run...",
+        )
         run_result = _run_instance(
             scenario_config=scenario_config,
             clickhouse_config=clickhouse_config,
             writer_threads=int(writers),
             insert_batch_size=int(batch),
+            duration_seconds=float(scenario_config.duration_seconds),
         )
         logger.info(
             "scenario_instance_finished",
@@ -103,6 +147,7 @@ def _run_instance(
     clickhouse_config: ClickHouseConfig,
     writer_threads: int,
     insert_batch_size: int,
+    duration_seconds: float,
 ) -> dict[str, Any]:
     logger = structlog.get_logger("profiler.scenarios.write_read")
     current_event_count = 0
@@ -122,7 +167,7 @@ def _run_instance(
     logger.info(
         "scenario_instance_started",
         scenario="write_read",
-        duration_seconds=float(scenario_config.duration_seconds),
+        duration_seconds=float(duration_seconds),
         insert_batch_size=int(insert_batch_size),
         writer_threads=int(writer_threads),
         reader_threads=int(scenario_config.reader_threads),
@@ -130,7 +175,7 @@ def _run_instance(
     )
 
     started = time.perf_counter()
-    deadline = started + float(scenario_config.duration_seconds)
+    deadline = started + float(duration_seconds)
 
     lock = threading.Lock()
     start_barrier = threading.Event()

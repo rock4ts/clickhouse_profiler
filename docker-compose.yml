@@ -78,6 +78,8 @@ services:
       RESULTS_DIR: /results
       CLICKHOUSE_CONTAINER_CPUS: 6
       CLICKHOUSE_CONTAINER_RAM_LIMIT: 8g
+      PROFILER_WARMUP_ENABLED: true
+      PROFILER_WARMUP_DURATION_SECONDS: 15
     volumes:
       - ./results:/results
     command:

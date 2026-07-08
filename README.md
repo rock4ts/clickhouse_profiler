@@ -34,7 +34,7 @@ flowchart TB
 | **dataset-loader** | Generates and loads synthetic event records into `initial_events`; creates the empty `events` benchmark table |
 | **profiler** | CLI entry point — selects and runs one scenario per invocation |
 | **scenarios** | Pluggable benchmarks under `profiler/app/scenarios/`; `write_read` is the first implemented scenario |
-| **results** | Timestamped output per scenario run (`$RESULTS_DIR/<scenario>/<timestamp>/`; default `results/`) |
+| **results** | Timestamped output per scenario run (`$RESULTS_DIR/<scenario>/<timestamp>/`; default `results/`; timestamps use local time) |
 
 ### Shared data model
 
@@ -78,30 +78,33 @@ Simulates a mixed OLAP-style workload: writers continuously insert event batches
 
 For each combination of writer thread count and insert batch size, the scenario:
 
-1. Resets `events` by copying from `initial_events`.
-2. Clears ClickHouse caches (`SYSTEM DROP MARK CACHE`, `SYSTEM DROP UNCOMPRESSED CACHE`, `SYSTEM DROP QUERY CACHE`) so each experiment starts from a cold cache state.
-3. Starts N writer threads that insert batches until the configured duration elapses.
-4. Starts M reader threads that run aggregation queries (GROUP BY category, region, user_id) in parallel.
-5. Records rows written, ingestion throughput, query count, and query latency (avg, p95, max).
+1. **Warm-up** *(optional, enabled by default)* — resets `events`, clears ClickHouse caches, and runs the mixed workload for `PROFILER_WARMUP_DURATION_SECONDS`. Warm-up metrics are not recorded.
+2. **Measured run** — resets `events`, clears caches again, runs the same workload for `WR_DURATION_SECONDS`, and appends one row to `profile.csv`.
 
-Cache clearing runs in `profiler/app/clickhouse/reset.py` immediately after the table reset and before the timed workload starts. If a cache command is unsupported or fails, the run continues and logs a warning.
+During each workload run (warm-up and measured), N writer threads insert batches while M reader threads execute aggregation queries (GROUP BY category, region, user_id) in parallel. The measured run records rows written, ingestion throughput, query count, and query latency (avg, p95, max).
+
+Table reset and cache clearing (`SYSTEM DROP MARK CACHE`, `SYSTEM DROP UNCOMPRESSED CACHE`, `SYSTEM DROP QUERY CACHE`) run in `profiler/app/clickhouse/reset.py` before both warm-up and measured runs. If a cache command is unsupported or fails, the run continues and logs a warning.
+
+Disable warm-up with `PROFILER_WARMUP_ENABLED=false` when you need faster iteration or want to measure cold-start behavior only.
 
 Default parameter grid: writer threads `{3, 4, 5}` × batch sizes `{3000, 5000, 8000}`.
 
 **Results** — written to `$RESULTS_DIR/write_read/<timestamp>/` (default: `results/write_read/<timestamp>/`):
 
 ```
-$RESULTS_DIR/write_read/20260707T143043/
-├── metadata.json   # ClickHouse resource limits and scenario configuration
-└── profile.csv     # One row per (writers, batch_size) experiment
+$RESULTS_DIR/write_read/20260708T091734/
+├── metadata.json   # ClickHouse limits, scenario config, and warm-up settings
+└── profile.csv     # One row per (writers, batch_size) measured run
 ```
+
+`metadata.json` includes a `warmup` object (`enabled`, `duration_seconds`) alongside `clickhouse_container` and `scenario_config`.
 
 | Column | Description |
 |--------|-------------|
 | `writers` | Number of concurrent writer threads |
 | `batch_size` | Rows per insert batch |
 | `readers` | Number of concurrent reader threads |
-| `duration_sec` | Actual run duration of each experiment|
+| `run_duration_sec` | Actual duration of each measured run |
 | `rows_written` | Total rows inserted during the run |
 | `ingestion_throughput_per_sec` | Rows inserted per second |
 | `queries_executed` | Successful aggregation queries |
@@ -146,7 +149,7 @@ To tear down containers and remove the ClickHouse volume:
 docker compose down -v
 ```
 
-In `docker-compose.yml`, `WR_DURATION_SECONDS=10` keeps demo runs short. Increase it for meaningful benchmarks.
+In `docker-compose.yml`, `WR_DURATION_SECONDS=30` and `PROFILER_WARMUP_DURATION_SECONDS=15` keep demo runs short. Increase `WR_DURATION_SECONDS` for meaningful benchmarks; set `PROFILER_WARMUP_ENABLED=false` to skip warm-up during quick smoke tests.
 
 ## Configuration
 
@@ -181,6 +184,8 @@ These settings apply to every scenario:
 | `RESULTS_DIR` | `results` | Root directory for profiler output (`$RESULTS_DIR/<scenario>/<timestamp>/`) |
 | `CLICKHOUSE_CONTAINER_CPUS` | `6` | Recorded in metadata for reproducibility |
 | `CLICKHOUSE_CONTAINER_RAM_LIMIT` | `8g` | Recorded in metadata for reproducibility |
+| `PROFILER_WARMUP_ENABLED` | `true` | Run a warm-up workload before each measured experiment |
+| `PROFILER_WARMUP_DURATION_SECONDS` | `15` | Duration of each warm-up run (seconds) |
 
 Scenario-specific variables are documented under each scenario above.
 
