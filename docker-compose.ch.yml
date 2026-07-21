@@ -1,0 +1,218 @@
+x-clickhouse-node-resources: &clickhouse_node_resources
+  cpus: ${CLICKHOUSE_NODE_CPUS:-2}
+  mem_limit: ${CLICKHOUSE_NODE_RAM_GB:-2}g
+
+services:
+
+  keeper-1:
+    image: clickhouse/clickhouse-keeper:23
+    hostname: keeper-1
+    restart: unless-stopped
+    volumes:
+      - ./ch_config/keeper/keeper1.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
+      - keeper_1_data:/var/lib/clickhouse-keeper
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-keeper-client -h 127.0.0.1 -p 9181 -q ruok | grep -q imok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - clickhouse_net
+
+  keeper-2:
+    image: clickhouse/clickhouse-keeper:23
+    hostname: keeper-2
+    restart: unless-stopped
+    volumes:
+      - ./ch_config/keeper/keeper2.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
+      - keeper_2_data:/var/lib/clickhouse-keeper
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-keeper-client -h 127.0.0.1 -p 9181 -q ruok | grep -q imok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - clickhouse_net
+
+  keeper-3:
+    image: clickhouse/clickhouse-keeper:23
+    hostname: keeper-3
+    restart: unless-stopped
+    volumes:
+      - ./ch_config/keeper/keeper3.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
+      - keeper_3_data:/var/lib/clickhouse-keeper
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-keeper-client -h 127.0.0.1 -p 9181 -q ruok | grep -q imok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - clickhouse_net
+
+  clickhouse-node1:
+    image: clickhouse/clickhouse-server:23
+    hostname: clickhouse-node1
+    restart: unless-stopped
+    <<: *clickhouse_node_resources
+    env_file:
+      - ../env-files/.env.clickhouse
+    volumes:
+      - ./ch_config/data/node1:/etc/clickhouse-server
+      - clickhouse_node1_data:/var/lib/clickhouse
+    depends_on:
+      keeper-1:
+        condition: service_healthy
+      keeper-2:
+        condition: service_healthy
+      keeper-3:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "clickhouse-client --host 127.0.0.1 --database default --user admin --password \"$$CLICKHOUSE_ADMIN_PASSWORD\" --query 'SELECT 1'",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - clickhouse_net
+
+  clickhouse-node2:
+    image: clickhouse/clickhouse-server:23
+    hostname: clickhouse-node2
+    restart: unless-stopped
+    <<: *clickhouse_node_resources
+    env_file:
+      - ../env-files/.env.clickhouse
+    volumes:
+      - ./ch_config/data/node2:/etc/clickhouse-server
+      - clickhouse_node2_data:/var/lib/clickhouse
+    depends_on:
+      keeper-1:
+        condition: service_healthy
+      keeper-2:
+        condition: service_healthy
+      keeper-3:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "clickhouse-client --host 127.0.0.1 --database default --user admin --password \"$$CLICKHOUSE_ADMIN_PASSWORD\" --query 'SELECT 1'",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - clickhouse_net
+
+  clickhouse-node3:
+    image: clickhouse/clickhouse-server:23
+    hostname: clickhouse-node3
+    restart: unless-stopped
+    <<: *clickhouse_node_resources
+    env_file:
+      - ../env-files/.env.clickhouse
+    volumes:
+      - ./ch_config/data/node3:/etc/clickhouse-server
+      - clickhouse_node3_data:/var/lib/clickhouse
+    depends_on:
+      keeper-1:
+        condition: service_healthy
+      keeper-2:
+        condition: service_healthy
+      keeper-3:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "clickhouse-client --host 127.0.0.1 --database default --user admin --password \"$$CLICKHOUSE_ADMIN_PASSWORD\" --query 'SELECT 1'",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - clickhouse_net
+
+  clickhouse-node4:
+    image: clickhouse/clickhouse-server:23
+    hostname: clickhouse-node4
+    restart: unless-stopped
+    <<: *clickhouse_node_resources
+    env_file:
+      - ../env-files/.env.clickhouse
+    volumes:
+      - ./ch_config/data/node4:/etc/clickhouse-server
+      - clickhouse_node4_data:/var/lib/clickhouse
+    depends_on:
+      keeper-1:
+        condition: service_healthy
+      keeper-2:
+        condition: service_healthy
+      keeper-3:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "clickhouse-client --host 127.0.0.1 --database default --user admin --password \"$$CLICKHOUSE_ADMIN_PASSWORD\" --query 'SELECT 1'",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - clickhouse_net
+
+  clickhouse-ui:
+    image: ghcr.io/caioricciuti/ch-ui:latest
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_URL: http://clickhouse-node1:8123
+    volumes:
+      - clickhouse_ui_data:/app/data
+    depends_on:
+      clickhouse-node1:
+        condition: service_healthy
+    networks:
+      - clickhouse_net
+
+  clickhouse-init:
+    image: clickhouse/clickhouse-server:23
+    env_file:
+      - ../env-files/.env.clickhouse
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - >-
+        clickhouse-client --host clickhouse-node1 --database default
+        --user admin --password "$$CLICKHOUSE_ADMIN_PASSWORD"
+        --multiquery < /init/01_create_profiler_tables.sql
+    volumes:
+      - ./ch_config/init:/init:ro
+    depends_on:
+      clickhouse-node1:
+        condition: service_healthy
+      clickhouse-node2:
+        condition: service_healthy
+      clickhouse-node3:
+        condition: service_healthy
+      clickhouse-node4:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - clickhouse_net
+
+networks:
+  clickhouse_net:
+    driver: bridge
+
+volumes:
+  keeper_1_data:
+  keeper_2_data:
+  keeper_3_data:
+  clickhouse_node1_data:
+  clickhouse_node2_data:
+  clickhouse_node3_data:
+  clickhouse_node4_data:
+  clickhouse_ui_data:

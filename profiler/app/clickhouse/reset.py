@@ -39,11 +39,14 @@ def reset_benchmark_table(config: ClickHouseConfig) -> int:
         "benchmark_reset_started",
         benchmark_table=config.table,
         initial_table=config.initial_table,
+        benchmark_local_table=config.local_table,
+        cluster=config.cluster,
     )
 
     client = create_client(config)
     try:
-        client.execute(f"TRUNCATE TABLE {config.table}")
+        client.execute(f"TRUNCATE TABLE {config.local_table} ON CLUSTER {config.cluster}")
+        client.execute("SET insert_distributed_sync = 1")
         client.execute(f"INSERT INTO {config.table} SELECT * FROM {config.initial_table}")
         restored_rows = get_table_row_count(client, config.table)
     finally:
@@ -54,6 +57,8 @@ def reset_benchmark_table(config: ClickHouseConfig) -> int:
         "benchmark_reset_finished",
         benchmark_table=config.table,
         initial_table=config.initial_table,
+        benchmark_local_table=config.local_table,
+        cluster=config.cluster,
         rows_restored=restored_rows,
         elapsed_seconds=round(elapsed, 4),
     )

@@ -19,7 +19,8 @@ flowchart TB
     Results[("RESULTS_DIR/")]
 
     DatasetLoader -->|seed| InitialTable
-    DatasetLoader -->|create| BenchmarkTable
+    ClickHouse -->|init creates| InitialTable
+    ClickHouse -->|init creates| BenchmarkTable
     ClickHouse --- InitialTable
     ClickHouse --- BenchmarkTable
 
@@ -32,7 +33,7 @@ flowchart TB
 | Component | Role |
 |-----------|------|
 | **clickhouse** | ClickHouse 25.6 server with fixed CPU/RAM limits for reproducible benchmarks |
-| **dataset-loader** | Generates and loads synthetic event records into `initial_events`; creates the empty `events` benchmark table |
+| **dataset-loader** | Generates and loads synthetic event records into `initial_events`; truncates and reseeds data only |
 | **profiler** | CLI entry point — selects and runs one scenario per invocation |
 | **scenarios** | Pluggable benchmarks under `profiler/app/scenarios/`; `write_read` is the first implemented scenario |
 | **results** | Timestamped output per scenario run (`$RESULTS_DIR/<scenario>/<timestamp>/`; default `results/`; timestamps use local time) |
@@ -50,8 +51,9 @@ Both tables use the same schema:
 | `region` | String | `North`, `South`, `East`, or `West` |
 | `timestamp` | DateTime | Event timestamp |
 
-- **`initial_events`** — immutable seed dataset loaded once by the dataset loader.
-- **`events`** — mutable benchmark table; scenarios reset or modify it as needed. The `write_read` scenario copies from `initial_events` and clears ClickHouse caches before each experiment.
+- **`initial_events_local` / `events_local`** — replicated shard-local tables (`ReplicatedMergeTree`) created by `clickhouse-init`.
+- **`initial_events` / `events`** — distributed front tables over `ugc_cluster` created by `clickhouse-init`.
+- The dataset loader truncates local tables on the cluster and reseeds `initial_events`; scenarios reset `events_local` and then restore `events` from `initial_events`.
 
 ## Profiler
 
@@ -62,6 +64,8 @@ python -m app.main run <scenario>
 ```
 
 Shared settings (ClickHouse connection, results directory, container resource metadata) apply to all scenarios. Scenario-specific settings use a dedicated env prefix (e.g. `WR_` for `write_read`).
+
+Cluster resource metadata is derived from per-node settings: `CLICKHOUSE_NODE_COUNT * CLICKHOUSE_NODE_CPUS` and `CLICKHOUSE_NODE_COUNT * CLICKHOUSE_NODE_RAM_GB`.
 
 ### Available scenarios
 
@@ -98,7 +102,7 @@ $RESULTS_DIR/write_read/20260708T091734/
 └── profile.csv     # One row per (writers, batch_size) measured run
 ```
 
-`metadata.json` includes a `warmup` object (`enabled`, `duration_seconds`) alongside `clickhouse_container` and `scenario_config`.
+`metadata.json` includes a `warmup` object (`enabled`, `duration_seconds`) alongside `clickhouse_cluster` (node inputs plus computed totals) and `scenario_config`.
 
 | Column | Description |
 |--------|-------------|
@@ -140,7 +144,7 @@ docker compose up --build
 
 This will:
 
-1. Start ClickHouse (6 CPUs, 8 GB RAM).
+1. Start ClickHouse (8 CPUs, 8 GB RAM cluster total by default) and run `clickhouse-init` schema setup from `ch_config/init`.
 2. Load 10 million synthetic events into `initial_events` (skipped on subsequent runs if already populated).
 3. Run `write_read` and write results to `$RESULTS_DIR/write_read/<timestamp>/` (default `results/`).
 
@@ -168,6 +172,9 @@ In `docker-compose.yml`, `WR_DURATION_SECONDS=30` and `PROFILER_WARMUP_DURATION_
 | `CLICKHOUSE_DATABASE` | — | Target database |
 | `CLICKHOUSE_TABLE` | `events` | Benchmark table name |
 | `CLICKHOUSE_INITIAL_TABLE` | `initial_events` | Seed table name |
+| `CLICKHOUSE_LOCAL_TABLE` | `events_local` | Cluster-local benchmark table used for truncate/reset |
+| `CLICKHOUSE_INITIAL_LOCAL_TABLE` | `initial_events_local` | Cluster-local seed table used for truncate/reseed |
+| `CLICKHOUSE_CLUSTER` | `ugc_cluster` | Cluster name used in `ON CLUSTER` truncation |
 
 ### Profiler (shared)
 
@@ -182,9 +189,13 @@ These settings apply to every scenario:
 | `CLICKHOUSE_DATABASE` | `profiler` | Target database |
 | `CLICKHOUSE_TABLE` | `events` | Benchmark table name |
 | `CLICKHOUSE_INITIAL_TABLE` | `initial_events` | Seed table name |
+| `CLICKHOUSE_LOCAL_TABLE` | `events_local` | Cluster-local benchmark table used for `TRUNCATE ... ON CLUSTER` |
+| `CLICKHOUSE_INITIAL_LOCAL_TABLE` | `initial_events_local` | Cluster-local seed table name |
+| `CLICKHOUSE_CLUSTER` | `ugc_cluster` | Cluster name used for distributed reset operations |
 | `RESULTS_DIR` | `results` | Root directory for profiler output (`$RESULTS_DIR/<scenario>/<timestamp>/`) |
-| `CLICKHOUSE_CONTAINER_CPUS` | `6` | Recorded in metadata for reproducibility |
-| `CLICKHOUSE_CONTAINER_RAM_LIMIT` | `8g` | Recorded in metadata for reproducibility |
+| `CLICKHOUSE_NODE_COUNT` | `4` | Number of ClickHouse nodes used to calculate cluster totals in metadata |
+| `CLICKHOUSE_NODE_CPUS` | `2` | Per-node CPU limit used to calculate `clickhouse_cluster.cpus` metadata |
+| `CLICKHOUSE_NODE_RAM_GB` | `2` | Per-node RAM (GiB) used to calculate `clickhouse_cluster.ram_limit` metadata |
 | `PROFILER_WARMUP_ENABLED` | `true` | Run a warm-up workload before each measured experiment |
 | `PROFILER_WARMUP_DURATION_SECONDS` | `15` | Duration of each warm-up run (seconds) |
 
@@ -240,7 +251,7 @@ clickhouse_profiler/
 ├── dataset_loader/             # Synthetic data generation and initial load
 │   ├── app/
 │   │   ├── main.py
-│   │   ├── clickhouse.py       # Table creation and bulk insert
+│   │   ├── clickhouse.py       # Cluster truncate checks and bulk insert
 │   │   ├── generator.py        # Batch record generator
 │   │   └── config.py
 │   └── Dockerfile

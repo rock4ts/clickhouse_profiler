@@ -53,9 +53,12 @@ def run(
     warmup_enabled = bool(profiler_config.profiler_warmup_enabled)
     warmup_duration_seconds = int(profiler_config.profiler_warmup_duration_seconds)
     metadata = {
-        "clickhouse_container": {
-            "cpus": float(profiler_config.clickhouse_container_cpus),
-            "ram_limit": profiler_config.clickhouse_container_ram_limit,
+        "clickhouse_cluster": {
+            "node_count": int(profiler_config.clickhouse_node_count),
+            "node_cpus": float(profiler_config.clickhouse_node_cpus),
+            "node_ram_gb": float(profiler_config.clickhouse_node_ram_gb),
+            "cpus": float(profiler_config.clickhouse_cluster_cpus),
+            "ram_limit": profiler_config.clickhouse_cluster_ram_limit,
         },
         "scenario_config": scenario_config.model_dump(by_alias=True),
         "warmup": {

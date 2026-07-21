@@ -35,10 +35,12 @@ def main() -> int:
         skip_if_populated=loader_config.skip_if_populated,
     )
 
+    loaded_rows = 0
     try:
         loaded_rows = clickhouse.run(loader_config, ClickHouseConfig())
     except Exception as exc:
         logger.error("loader_failed", error=str(exc))
+        return 1
     logger.info("loader_finished", loaded_rows=loaded_rows)
     return 0
 

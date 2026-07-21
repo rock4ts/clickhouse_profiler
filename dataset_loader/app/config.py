@@ -22,3 +22,6 @@ class ClickHouseConfig(BaseSettings):
     database: str = "default"
     table: str = "events"
     initial_table: str = "initial_events"
+    local_table: str = "events_local"
+    initial_local_table: str = "initial_events_local"
+    cluster: str = "ugc_cluster"

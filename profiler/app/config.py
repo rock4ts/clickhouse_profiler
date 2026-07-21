@@ -8,10 +8,23 @@ class ProfilerConfig(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
 
     results_dir: str = "results"
-    clickhouse_container_cpus: PositiveFloat = 6.0
-    clickhouse_container_ram_limit: str = "8g"
+    clickhouse_node_count: PositiveInt = 4
+    clickhouse_node_cpus: PositiveFloat = 2.0
+    clickhouse_node_ram_gb: PositiveFloat = 2.0
     profiler_warmup_enabled: bool = True
     profiler_warmup_duration_seconds: PositiveInt = 15
+
+    @property
+    def clickhouse_cluster_cpus(self) -> float:
+        return float(self.clickhouse_node_count) * float(self.clickhouse_node_cpus)
+
+    @property
+    def clickhouse_cluster_ram_limit(self) -> str:
+        cluster_ram_gb = float(self.clickhouse_node_count) * float(self.clickhouse_node_ram_gb)
+        # Keep integer formatting for clean metadata (e.g. "8g" instead of "8.0g").
+        if cluster_ram_gb.is_integer():
+            return f"{int(cluster_ram_gb)}g"
+        return f"{cluster_ram_gb}g"
 
 
 class ClickHouseConfig(BaseSettings):
@@ -24,6 +37,9 @@ class ClickHouseConfig(BaseSettings):
     database: str = "profiler"
     table: str = "events"
     initial_table: str = "initial_events"
+    local_table: str = "events_local"
+    initial_local_table: str = "initial_events_local"
+    cluster: str = "ugc_cluster"
 
 
 class WriteReadConfig(BaseSettings):

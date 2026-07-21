@@ -1,54 +1,32 @@
-version: "3.9"
+include:
+  - ./docker-compose.ch.yml
 
 services:
-  clickhouse:
-    image: clickhouse/clickhouse-server:25.6
-    container_name: clickhouse
-    restart: unless-stopped
-    ulimits:
-      nofile:
-        soft: 262144
-        hard: 262144
-    cpus: 6
-    cpuset: "0-5"
-    mem_limit: 8g
-    healthcheck:
-      test: ["CMD-SHELL", "clickhouse-client --user profiler --password profiler --query 'SELECT 1' >/dev/null 2>&1"]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-      start_period: 10s
-    ports:
-      - "8123:8123"   # HTTP
-      - "9000:9000"   # Native TCP
-    environment:
-      CLICKHOUSE_DB: profiler
-      CLICKHOUSE_USER: profiler
-      CLICKHOUSE_PASSWORD: profiler
-      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
-    volumes:
-      - clickhouse_data:/var/lib/clickhouse
-
   dataset-loader:
     build:
       context: ./dataset_loader
     container_name: dataset-loader
     restart: "no"
     depends_on:
-      clickhouse:
-        condition: service_healthy
+      clickhouse-init:
+        condition: service_completed_successfully
     environment:
       RECORDS_COUNT: 10000000
       BATCH_SIZE: 5000
       SKIP_IF_POPULATED: "true"
-      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_HOST: clickhouse-node1
       CLICKHOUSE_PORT: 9000
-      CLICKHOUSE_USER: profiler
-      CLICKHOUSE_PASSWORD: profiler
-      CLICKHOUSE_DATABASE: profiler
+      CLICKHOUSE_USER: admin
+      CLICKHOUSE_PASSWORD: admin_password
+      CLICKHOUSE_DATABASE: default
       CLICKHOUSE_TABLE: events
       CLICKHOUSE_INITIAL_TABLE: initial_events
+      CLICKHOUSE_LOCAL_TABLE: events_local
+      CLICKHOUSE_INITIAL_LOCAL_TABLE: initial_events_local
+      CLICKHOUSE_CLUSTER: ugc_cluster
     command: ["python", "-m", "app.main"]
+    networks:
+      - clickhouse_net
 
   wr-profiler:
     build:
@@ -56,28 +34,32 @@ services:
     container_name: wr-profiler
     restart: "no"
     depends_on:
-      clickhouse:
-        condition: service_healthy
+      clickhouse-init:
+        condition: service_completed_successfully
       dataset-loader:
         condition: service_completed_successfully
     environment:
-      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_HOST: clickhouse-node1
       CLICKHOUSE_PORT: 9000
-      CLICKHOUSE_USER: profiler
-      CLICKHOUSE_PASSWORD: profiler
-      CLICKHOUSE_DATABASE: profiler
+      CLICKHOUSE_USER: admin
+      CLICKHOUSE_PASSWORD: admin_password
+      CLICKHOUSE_DATABASE: default
       CLICKHOUSE_TABLE: events
       CLICKHOUSE_INITIAL_TABLE: initial_events
+      CLICKHOUSE_LOCAL_TABLE: events_local
+      CLICKHOUSE_INITIAL_LOCAL_TABLE: initial_events_local
+      CLICKHOUSE_CLUSTER: ugc_cluster
       WR_DURATION_SECONDS: 30
-      WR_INSERT_BATCH_SIZE_LIST: "[3000,5000,8000]"
-      WR_WRITER_THREAD_LIST: "[3,4,5]"
+      WR_INSERT_BATCH_SIZE_LIST: "[1000, 2000, 3000, 5000, 8000]"
+      WR_WRITER_THREAD_LIST: "[1,2,3,4,5]"
       WR_READER_THREADS: 10
       WR_MAX_RETRIES: 3
       WR_INSERT_REQUEST_TIMEOUT_SECONDS: 10
       WR_READ_REQUEST_TIMEOUT_SECONDS: 20
       RESULTS_DIR: /results
-      CLICKHOUSE_CONTAINER_CPUS: 6
-      CLICKHOUSE_CONTAINER_RAM_LIMIT: 8g
+      CLICKHOUSE_NODE_COUNT: ${CLICKHOUSE_NODE_COUNT:-4}
+      CLICKHOUSE_NODE_CPUS: ${CLICKHOUSE_NODE_CPUS:-2}
+      CLICKHOUSE_NODE_RAM_GB: ${CLICKHOUSE_NODE_RAM_GB:-2}
       PROFILER_WARMUP_ENABLED: true
       PROFILER_WARMUP_DURATION_SECONDS: 15
     volumes:
@@ -90,6 +72,5 @@ services:
         "run",
         "write_read",
       ]
-
-volumes:
-  clickhouse_data:
+    networks:
+      - clickhouse_net

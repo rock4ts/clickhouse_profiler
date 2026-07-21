@@ -8,19 +8,6 @@ import structlog
 from app.config import ClickHouseConfig, LoaderConfig
 from app.generator import generate_batches
 
-_TABLE_SCHEMA_SQL = """
-(
-    user_id UInt32,
-    category String,
-    amount Float64,
-    status String,
-    region String,
-    timestamp DateTime
-) ENGINE = MergeTree()
-ORDER BY (timestamp, category)
-"""
-
-
 def _create_client(config: ClickHouseConfig) -> clickhouse_driver.Client:
     return clickhouse_driver.Client(
         host=config.host,
@@ -48,8 +35,24 @@ def _get_row_count(client: clickhouse_driver.Client, table: str) -> int:
     return int(result[0][0])
 
 
-def _create_table(client: clickhouse_driver.Client, table: str) -> None:
-    client.execute(f"CREATE TABLE {table} {_TABLE_SCHEMA_SQL}")
+def _require_tables_exist(client: clickhouse_driver.Client, db_config: ClickHouseConfig) -> None:
+    required_tables = (
+        db_config.initial_table,
+        db_config.table,
+        db_config.initial_local_table,
+        db_config.local_table,
+    )
+    missing = [
+        table
+        for table in required_tables
+        if not _table_exists(client, db_config.database, table)
+    ]
+    if missing:
+        missing_list = ", ".join(missing)
+        raise RuntimeError(
+            "required ClickHouse tables are missing: "
+            f"{missing_list}. Run clickhouse-init to create schema first."
+        )
 
 
 def run(loader_config: LoaderConfig, db_config: ClickHouseConfig) -> int:
@@ -66,6 +69,8 @@ def run(loader_config: LoaderConfig, db_config: ClickHouseConfig) -> int:
         logger.info("databse_error", error=str(exc))
         raise Exception("failed to connect to clickhouse")
 
+    _require_tables_exist(client, db_config)
+
     started_at = time.monotonic()
 
     if loader_config.skip_if_populated and _table_exists(
@@ -79,11 +84,6 @@ def run(loader_config: LoaderConfig, db_config: ClickHouseConfig) -> int:
                 existing_rows=existing_rows,
                 records_count=loader_config.records_count,
             )
-            if not _table_exists(client, db_config.database, db_config.table):
-                logger.info("create_benchmark_table_started")
-                _create_table(client, db_config.table)
-                logger.info("create_benchmark_table_finished")
-
             client.disconnect()
             return existing_rows
 
@@ -95,15 +95,18 @@ def run(loader_config: LoaderConfig, db_config: ClickHouseConfig) -> int:
 
     total_rows = 0
 
-    logger.info("drop_tables_started")
-    client.execute(f"DROP TABLE IF EXISTS {db_config.table}")
-    client.execute(f"DROP TABLE IF EXISTS {db_config.initial_table}")
-    logger.info("drop_tables_finished")
-
-    logger.info("create_tables_started")
-    _create_table(client, db_config.initial_table)
-    _create_table(client, db_config.table)
-    logger.info("create_tables_finished")
+    logger.info(
+        "truncate_tables_started",
+        table=db_config.local_table,
+        initial_table=db_config.initial_local_table,
+        cluster=db_config.cluster,
+    )
+    client.execute(f"TRUNCATE TABLE {db_config.local_table} ON CLUSTER {db_config.cluster}")
+    client.execute(
+        f"TRUNCATE TABLE {db_config.initial_local_table} ON CLUSTER {db_config.cluster}"
+    )
+    client.execute("SET insert_distributed_sync = 1")
+    logger.info("truncate_tables_finished")
 
     for batch in generate_batches(loader_config.records_count, loader_config.batch_size):
         rows = [record.as_clickhouse_dict() for record in batch]
